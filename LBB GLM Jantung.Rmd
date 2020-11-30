@@ -1,0 +1,151 @@
+---
+title: "LBB CM1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(gtools)
+library(ggplot2)
+library(class)
+library(tidyr)
+library(caret)
+library(MASS)
+```
+
+
+
+```{r}
+data <- read.csv("data_input/heart.csv")
+head(data)
+```
+Atribut data:
+
+ï..age : dalam beberapa tahun
+
+sex : (1 = laki-laki; 0 = perempuan)
+
+cp : tipe nyeri yang paling parah
+
+trestbps : melacak tekanan darah(dalam mm Hg saat masuk ke rumah sakit)
+
+chol : kolestoral dalam mg / dl
+
+fbs : (gula darah puasa> 120 mg / dl) (1 = benar; 0 = salah)
+
+restecg : mengembalikan hasil elektrokardiografi
+
+thalach : denyut jantung maksimum tercapai
+
+exang : exercise induced angina (1 = ya; 0 = tidak)
+
+oldpeak : ST depresi yang disebabkan oleh olahraga relatif terhadap istirahat
+
+slope : kemiringan segmen ST latihan puncak
+
+ca : jumlah pembuluh darah utama (0-3) diwarnai dengan fluoroskopi
+
+thal : 3 = normal; 6 = cacat tetap; 7 = cacat yang dapat dibalik
+
+target : 1 = sakit atau 0 = tidak sakit
+
+
+# Data Manipulation and Pre-processing
+
+Beberapa kolom tersebut harus dibuah menjadi tipe data faktor antara lain: 
+- fbs, exang, sex, target
+
+```{r}
+datatype <- data %>% 
+  mutate_if(is.integer, as.factor) %>% 
+  mutate(
+    fbs = factor(fbs, levels = c("0", "1"), labels = c("False", "True")),
+    sex = factor(sex, levels = c("0", "1"), labels = c("Female", "Male")),
+    exang = factor(exang, levels = c("0", "1"), labels = c("False", "True")),
+    target = factor(target, levels = c("0", "1"), labels = c("Healthy", "Ill"))
+    )
+    
+glimpse(datatype)
+```
+Cek missing Value
+
+```{r}
+anyNA(datatype)
+```
+
+Selanjutnya kita periksa terlebih dahulu proporsi dari data yang dimiliki 
+```{r}
+prop.table(table(datatype$target))
+```
+Proporsi data dinilai cukup seimbang untuk digunakan 
+
+# Data Split Train-Test
+
+Selanjutnya data kita pisah menjadi train dan test 
+
+```{r}
+RNGkind(sample.kind = "Rounding")
+set.seed(100)
+intrain <- sample(nrow(datatype), 0.8*nrow(datatype))
+heart_train <- datatype[intrain,]
+heart_test <- datatype[-intrain,]
+```
+```{r}
+prop.table(table(heart_train$target))
+```
+Proporsi data train sudah baik 
+
+
+## Modelling Logistic Regression
+
+Modelling dengan prediktor yang dianggap berpengaruh
+
+```{r}
+model_heart_factor <- glm(target ~ sex + cp + exang + ca, data= heart_train, family = "binomial")
+summary(model_heart_factor)
+```
+Dari hasil summary menunjukkan prediktor fbs (gula darah) tidak memiliki dampak siginifikan terhadap target
+
+# Prediksi GLM 
+
+selanjutnya kita akan prediksi dengan model 
+
+```{r}
+heart_test$pred_prob <- predict(model_heart_factor, newdata = heart_test, type = "response")
+heart_test$pred_label <- as.factor(ifelse(heart_test$pred_prob >= 0.5, "Ill", "Healthy"))
+table(prediction = heart_test$pred_label, actual = heart_test$target)
+```
+```{r}
+confusionMatrix(data = heart_test$pred_label, reference = heart_test$target, positive = "Ill")
+```
+Model memiliki akurasi dan sensitifitas yang cukup rendah maka dicoba untuk mengoptimasi pemilihan prediktor 
+
+# Model Step Backward
+
+Kita gunakan semua prediktor dengan tipe data faktor lalu digunakan proses pemilihan stepwise
+
+```{r}
+model_heart_factor_all <- glm(target ~ sex + cp + exang + ca + fbs + slope + thal, data= heart_train, family = "binomial")
+backward <- stepAIC(model_heart_factor_all, direction = "backward")
+```
+
+```{r}
+heart_test$pred_prob_back <- predict(backward, newdata = heart_test, type = "response")
+heart_test$pred_label_back <- as.factor(ifelse(heart_test$pred_prob_back >= 0.5, "Ill", "Healthy"))
+table(prediction = heart_test$pred_label_back, actual = heart_test$target)
+```
+```{r}
+confusionMatrix(data = heart_test$pred_label_back, reference = heart_test$target, positive = "Ill")
+```
+Model sudah menunjukkan akurasi serta sensitivitas yang tinggi, sehingga sudah cukup baik untuk digunakan
+
+## Conclusion
+
+Berdasarkan model diatas, model yang dinilai baik untuk digunakan adalah model GLM dengan proses stepwise backward. Dari model tersebut, faktor yang berdampak pada penyakit jantung adalah kondisi cacat jantung (thal), angina akibat olahraga (exang), gender, puncak olahraga pada segmen ST (slope), nyeri di dada (cp), dan jumlah pembuluh besar yang terdeteksi (ca).
+
+
+
